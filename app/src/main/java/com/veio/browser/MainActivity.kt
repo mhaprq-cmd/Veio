@@ -92,7 +92,7 @@ class MainActivity : Activity() {
         addressBar = EditText(this).apply {
             hint = "ابحث أو اكتب عنوان موقع"
             textSize = 14f
-            singleLine = true
+            isSingleLine = true
             setTextColor(Color.rgb(35, 40, 55))
             setHintTextColor(Color.rgb(135, 141, 155))
             setPadding(dp(8), dp(8), dp(8), dp(8))
