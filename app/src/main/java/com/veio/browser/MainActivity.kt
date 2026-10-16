@@ -40,6 +40,10 @@ class MainActivity : Activity() {
     private lateinit var drawerPanel: FrameLayout
     private lateinit var browserDrawer: BrowserDrawer
 
+    // الميزات المستقلة المرتبطة بالواجهة الرئيسية.
+    private lateinit var browserDownloads: BrowserDownloads
+    private lateinit var browserTranslator: BrowserTranslator
+
     private var mobileUserAgent: String? = null
     private var desktopMode = false
     private var adBlockEnabled = false
@@ -347,6 +351,11 @@ class MainActivity : Activity() {
                     if (!url.isNullOrBlank()) {
                         saveHistory(url, view?.title.orEmpty())
                     }
+
+                    // اكتشاف روابط الملفات لتفعيل زر التنزيل عند الحاجة.
+                    if (::browserDownloads.isInitialized) {
+                        browserDownloads.onPageFinished()
+                    }
                 }
             }
 
@@ -367,6 +376,18 @@ class MainActivity : Activity() {
         contentFrame.addView(
             webView,
             FrameLayout.LayoutParams(-1, -1)
+        )
+
+        // إنشاء أدوات التنزيل والترجمة بعد إنشاء WebView.
+        browserDownloads = BrowserDownloads(
+            activity = this,
+            webView = webView,
+            container = contentFrame
+        )
+
+        browserTranslator = BrowserTranslator(
+            activity = this,
+            webView = webView
         )
 
         contentFrame.addView(
@@ -455,6 +476,9 @@ class MainActivity : Activity() {
             }
         )
 
+        // إضافة خيارات التنزيلات والترجمة للقائمة الجانبية.
+        addDrawerFeatureItems()
+
         drawerPanel.addView(
             browserDrawer.view,
             FrameLayout.LayoutParams(-1, -1)
@@ -474,6 +498,130 @@ class MainActivity : Activity() {
         setContentView(appFrame)
 
         showHome()
+    }
+
+    /**
+     * يضيف خيارَي التنزيلات والترجمة إلى القائمة الجانبية
+     * دون تعديل ملف BrowserDrawer.kt.
+     */
+    private fun addDrawerFeatureItems() {
+        val drawerLayout =
+            browserDrawer.view as? LinearLayout ?: return
+
+        val insertAt = (drawerLayout.childCount - 1)
+            .coerceAtLeast(0)
+
+        val downloadsItem = createDrawerFeatureItem(
+            symbol = "↓",
+            title = "التنزيلات",
+            description = "عرض الملفات التي تم تنزيلها"
+        ) {
+            hideBrowserDrawer()
+            browserDownloads.showDownloads()
+        }
+
+        drawerLayout.addView(
+            downloadsItem,
+            insertAt
+        )
+
+        val downloadsDivider = createDrawerDivider()
+        drawerLayout.addView(
+            downloadsDivider,
+            insertAt + 1
+        )
+
+        val translateItem = createDrawerFeatureItem(
+            symbol = "文",
+            title = "ترجمة الصفحة",
+            description = "ترجمة الموقع الحالي إلى العربية"
+        ) {
+            hideBrowserDrawer()
+            browserTranslator.translateCurrentPage("ar")
+        }
+
+        drawerLayout.addView(
+            translateItem,
+            insertAt + 2
+        )
+
+        drawerLayout.addView(
+            createDrawerDivider(),
+            insertAt + 3
+        )
+    }
+
+    private fun createDrawerFeatureItem(
+        symbol: String,
+        title: String,
+        description: String,
+        onClick: () -> Unit
+    ): View {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            setPadding(dp(18), dp(10), dp(18), dp(10))
+            minimumHeight = dp(68)
+            isClickable = true
+            isFocusable = true
+
+            setBackgroundResource(
+                android.R.drawable.list_selector_background
+            )
+
+            addView(
+                TextView(this@MainActivity).apply {
+                    text = symbol
+                    textSize = 25f
+                    gravity = Gravity.CENTER
+                    setTextColor(accentColor)
+                },
+                LinearLayout.LayoutParams(dp(42), dp(42))
+            )
+
+            val labels = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(10), 0, dp(6), 0)
+
+                addView(
+                    TextView(this@MainActivity).apply {
+                        text = title
+                        textSize = 15f
+                        setTextColor(primaryText)
+                    }
+                )
+
+                addView(
+                    TextView(this@MainActivity).apply {
+                        text = description
+                        textSize = 11f
+                        setTextColor(secondaryText)
+                        setPadding(0, dp(4), 0, 0)
+                    }
+                )
+            }
+
+            addView(
+                labels,
+                LinearLayout.LayoutParams(0, -2, 1f)
+            )
+
+            setOnClickListener {
+                onClick()
+            }
+        }
+    }
+
+    private fun createDrawerDivider(): View {
+        return View(this).apply {
+            setBackgroundColor(borderColor)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(1)
+            )
+        }
     }
 
     private fun makeHeaderButton(
@@ -655,8 +803,7 @@ class MainActivity : Activity() {
         webView.visibility = View.VISIBLE
         addressContainer.visibility = View.VISIBLE
     }
-
-    private fun makeShortcut(
+        private fun makeShortcut(
         label: String,
         action: () -> Unit
     ): TextView {
@@ -703,7 +850,8 @@ class MainActivity : Activity() {
             setOnClickListener { action() }
         }
     }
-        private fun saveHistory(url: String, title: String) {
+
+    private fun saveHistory(url: String, title: String) {
         val preferences = getSharedPreferences(
             "veio_browser",
             Context.MODE_PRIVATE
@@ -837,6 +985,15 @@ class MainActivity : Activity() {
             drawerPanel.visibility == View.VISIBLE
         ) {
             hideBrowserDrawer()
+            return
+        }
+
+        if (
+            ::browserDownloads.isInitialized &&
+            ::webView.isInitialized &&
+            webView.visibility == View.GONE
+        ) {
+            browserDownloads.closeDownloads()
             return
         }
 
