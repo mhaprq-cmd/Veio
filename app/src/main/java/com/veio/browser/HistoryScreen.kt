@@ -9,6 +9,7 @@ import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -42,7 +43,6 @@ class HistoryScreen(
         else Color.rgb(105, 112, 128)
 
     private val accentColor = Color.rgb(78, 128, 224)
-
     private val dangerColor = Color.rgb(210, 65, 75)
 
     private val listContainer = LinearLayout(activity).apply {
@@ -114,9 +114,9 @@ class HistoryScreen(
 
         scrollView.addView(
             listContainer,
-            ScrollView.LayoutParams(
-                ScrollView.LayoutParams.MATCH_PARENT,
-                ScrollView.LayoutParams.WRAP_CONTENT
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
             )
         )
 
