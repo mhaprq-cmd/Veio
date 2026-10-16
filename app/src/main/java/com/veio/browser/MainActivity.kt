@@ -1,7 +1,6 @@
 package com.veio.browser
 
 import android.app.Activity
-import android.app.AlertDialog
 import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Color
@@ -22,8 +21,6 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
-import org.json.JSONArray
-import org.json.JSONObject
 
 class MainActivity : Activity() {
 
@@ -43,6 +40,10 @@ class MainActivity : Activity() {
     // الميزات المستقلة المرتبطة بالواجهة الرئيسية.
     private lateinit var browserDownloads: BrowserDownloads
     private lateinit var browserTranslator: BrowserTranslator
+
+    private val historyStore by lazy { HistoryStore(this) }
+    private var historyScreen: HistoryScreen? = null
+    private val historySavedVisibility = mutableMapOf<View, Int>()
 
     private var mobileUserAgent: String? = null
     private var desktopMode = false
@@ -247,7 +248,7 @@ class MainActivity : Activity() {
         homeSearch.setOnEditorActionListener { _, id, event ->
             val enter = event?.keyCode == KeyEvent.KEYCODE_ENTER &&
                 event.action == KeyEvent.ACTION_DOWN
-
+            
             if (id == EditorInfo.IME_ACTION_GO || enter) {
                 submitInput(homeSearch.text.toString())
                 true
@@ -487,7 +488,7 @@ class MainActivity : Activity() {
             desktopModeEnabled = desktopMode,
             adBlockEnabled = adBlockEnabled,
             onHistoryClick = {
-                showHistoryDialog()
+                showHistoryScreen()
             },
             onDesktopModeChanged = { enabled ->
                 setDesktopMode(enabled)
@@ -507,7 +508,7 @@ class MainActivity : Activity() {
             browserDrawer.view,
             FrameLayout.LayoutParams(-1, -1)
         )
-
+        
         appFrame.addView(
             drawerPanel,
             FrameLayout.LayoutParams(
@@ -761,7 +762,7 @@ class MainActivity : Activity() {
             setTextColor(primaryText)
             setHintTextColor(secondaryText)
             setPadding(dp(8), dp(7), dp(8), dp(7))
-
+            
             background = null
             layoutDirection = View.LAYOUT_DIRECTION_LTR
             textDirection = View.TEXT_DIRECTION_FIRST_STRONG
@@ -876,100 +877,64 @@ class MainActivity : Activity() {
     }
 
     private fun saveHistory(url: String, title: String) {
-        val preferences = getSharedPreferences(
-            "veio_browser",
-            Context.MODE_PRIVATE
-        )
-
-        val oldHistory = try {
-            JSONArray(
-                preferences.getString("history", "[]")
-            )
-        } catch (_: Exception) {
-            JSONArray()
-        }
-
-        val updatedHistory = JSONArray()
-        val normalizedUrl = url.trim()
-
-        if (normalizedUrl.isEmpty()) return
-
-        updatedHistory.put(
-            JSONObject().apply {
-                put("url", normalizedUrl)
-                put("title", title)
-            }
-        )
-
-        for (index in 0 until oldHistory.length()) {
-            val entry = oldHistory.optJSONObject(index) ?: continue
-            val oldUrl = entry.optString("url")
-
-            if (oldUrl == normalizedUrl) continue
-
-            updatedHistory.put(entry)
-
-            if (updatedHistory.length() >= 100) break
-        }
-
-        preferences.edit()
-            .putString("history", updatedHistory.toString())
-            .apply()
+        historyStore.save(url, title)
     }
 
-    private fun showHistoryDialog() {
-        val preferences = getSharedPreferences(
-            "veio_browser",
-            Context.MODE_PRIVATE
+    private fun showHistoryScreen() {
+        hideBrowserDrawer()
+
+        historyScreen?.let { oldScreen ->
+            if (oldScreen.view.parent === contentFrame) {
+                contentFrame.removeView(oldScreen.view)
+            }
+        }
+        historyScreen = null
+
+        historySavedVisibility.clear()
+        for (index in 0 until contentFrame.childCount) {
+            val child = contentFrame.getChildAt(index)
+            historySavedVisibility[child] = child.visibility
+            child.visibility = View.GONE
+        }
+
+        val screen = HistoryScreen(
+            activity = this,
+            historyStore = historyStore,
+            onOpenUrl = { url ->
+                closeHistoryScreen()
+                homeSearch.setText("")
+                showBrowser()
+                webView.loadUrl(url)
+            },
+            onClose = {
+                closeHistoryScreen()
+            }
         )
 
-        val history = try {
-            JSONArray(
-                preferences.getString("history", "[]")
-            )
-        } catch (_: Exception) {
-            JSONArray()
-        }
+        historyScreen = screen
+        contentFrame.addView(
+            screen.view,
+            FrameLayout.LayoutParams(-1, -1)
+        )
+        screen.view.visibility = View.VISIBLE
+        screen.view.bringToFront()
+    }
 
-        if (history.length() == 0) {
-            AlertDialog.Builder(this)
-                .setTitle("السجل")
-                .setMessage("لا توجد صفحات محفوظة في السجل حتى الآن.")
-                .setPositiveButton("حسنًا", null)
-                .show()
-            return
-        }
+    private fun closeHistoryScreen() {
+        val screen = historyScreen ?: return
+        screen.view.visibility = View.GONE
 
-        val entries = mutableListOf<Pair<String, String>>()
-        val labels = mutableListOf<String>()
-
-        for (index in 0 until history.length()) {
-            val entry = history.optJSONObject(index) ?: continue
-            val url = entry.optString("url")
-
-            if (url.isBlank()) continue
-
-            val title = entry.optString("title")
-                .takeIf { it.isNotBlank() }
-                ?: url
-
-            entries.add(title to url)
-            labels.add("$title\n$url")
-        }
-
-        if (entries.isEmpty()) return
-
-        AlertDialog.Builder(this)
-            .setTitle("السجل")
-            .setItems(labels.toTypedArray()) { _, which ->
-                if (which in entries.indices) {
-                    homeSearch.setText("")
-                    showBrowser()
-                    webView.loadUrl(entries[which].second)
-                }
+        historySavedVisibility.forEach { (view, visibility) ->
+            if (view.parent === contentFrame) {
+                view.visibility = visibility
             }
-            .setNegativeButton("إغلاق", null)
-            .show()
+        }
+        historySavedVisibility.clear()
+
+        if (screen.view.parent === contentFrame) {
+            contentFrame.removeView(screen.view)
+        }
+        historyScreen = null
     }
 
     private fun roundedBackground(
@@ -1005,6 +970,11 @@ class MainActivity : Activity() {
 
     @Deprecated("Deprecated in Android")
     override fun onBackPressed() {
+        if (historyScreen?.view?.visibility == View.VISIBLE) {
+            closeHistoryScreen()
+            return
+        }
+
         if (::drawerPanel.isInitialized &&
             drawerPanel.visibility == View.VISIBLE
         ) {
