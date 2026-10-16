@@ -327,6 +327,30 @@ class MainActivity : Activity() {
 
             webViewClient = object : WebViewClient() {
 
+                override fun shouldInterceptRequest(
+                    view: WebView?,
+                    request: android.webkit.WebResourceRequest?
+                ): android.webkit.WebResourceResponse? {
+                    val requestUrl = request?.url?.toString()
+
+                    if (
+                        adBlockEnabled &&
+                        !requestUrl.isNullOrBlank() &&
+                        AdBlocker.shouldBlock(requestUrl)
+                    ) {
+                        return android.webkit.WebResourceResponse(
+                            "text/plain",
+                            "UTF-8",
+                            204,
+                            "No Content",
+                            emptyMap(),
+                            java.io.ByteArrayInputStream(ByteArray(0))
+                        )
+                    }
+
+                    return super.shouldInterceptRequest(view, request)
+                }
+                
                 override fun onPageStarted(
                     view: WebView?,
                     url: String?,
