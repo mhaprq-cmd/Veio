@@ -10,7 +10,6 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
 import android.view.KeyEvent
-import android.view.Menu
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
@@ -21,7 +20,6 @@ import android.webkit.WebViewClient
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
-import android.widget.PopupMenu
 import android.widget.ProgressBar
 import android.widget.TextView
 import org.json.JSONArray
@@ -37,8 +35,14 @@ class MainActivity : Activity() {
     private lateinit var contentFrame: FrameLayout
     private lateinit var progressBar: ProgressBar
 
+    private lateinit var browserRoot: LinearLayout
+    private lateinit var drawerScrim: View
+    private lateinit var drawerPanel: FrameLayout
+    private lateinit var browserDrawer: BrowserDrawer
+
     private var mobileUserAgent: String? = null
     private var desktopMode = false
+    private var adBlockEnabled = false
 
     private val isDark: Boolean
         get() = (resources.configuration.uiMode and
@@ -71,7 +75,15 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         applySystemBarColors()
 
-        val root = LinearLayout(this).apply {
+        val preferences = getSharedPreferences(
+            "veio_browser",
+            Context.MODE_PRIVATE
+        )
+
+        desktopMode = preferences.getBoolean("desktop_mode", false)
+        adBlockEnabled = preferences.getBoolean("ad_block_enabled", false)
+
+        browserRoot = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_RTL
             setBackgroundColor(pageBackground)
@@ -79,34 +91,81 @@ class MainActivity : Activity() {
 
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(8), dp(2), dp(8), dp(2))
         }
 
-        val menuButton = TextView(this).apply {
-            text = "☰"
-            textSize = 24f
-            gravity = Gravity.CENTER
-            setTextColor(primaryText)
-            contentDescription = "القائمة"
-            setPadding(dp(8), dp(3), dp(8), dp(3))
-            isClickable = true
-            isFocusable = true
-        }
+        val menuButton = makeHeaderButton("☰", "القائمة")
+        val homeButton = makeHeaderButton("⌂", "الرئيسية")
+        val reloadButton = makeHeaderButton("↻", "تحديث")
+        val backButton = makeHeaderButton("‹", "رجوع")
+        val forwardButton = makeHeaderButton("›", "تقدم")
 
         val logo = TextView(this).apply {
             text = "Veio"
-            textSize = 22f
+            textSize = 20f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(accentColor)
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(5), 0, dp(5), 0)
+            setPadding(dp(6), 0, dp(4), 0)
         }
 
-        header.addView(menuButton)
-        header.addView(logo)
+        header.addView(menuButton, headerButtonParams())
+        header.addView(homeButton, headerButtonParams())
+        header.addView(reloadButton, headerButtonParams())
+        header.addView(backButton, headerButtonParams())
+        header.addView(forwardButton, headerButtonParams())
+
+        header.addView(
+            View(this),
+            LinearLayout.LayoutParams(0, 1, 1f)
+        )
+
+        header.addView(
+            logo,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        )
+
         menuButton.setOnClickListener {
-            showBrowserMenu(menuButton)
+            toggleBrowserDrawer()
+        }
+
+        homeButton.setOnClickListener {
+            showHome()
+        }
+
+        reloadButton.setOnClickListener {
+            if (::webView.isInitialized &&
+                webView.visibility == View.VISIBLE
+            ) {
+                webView.reload()
+            } else if (::homeSearch.isInitialized) {
+                homeSearch.requestFocus()
+            }
+        }
+
+        backButton.setOnClickListener {
+            if (::webView.isInitialized &&
+                webView.visibility == View.VISIBLE &&
+                webView.canGoBack()
+            ) {
+                webView.goBack()
+            } else {
+                showHome()
+            }
+        }
+
+        forwardButton.setOnClickListener {
+            if (::webView.isInitialized &&
+                webView.visibility == View.VISIBLE &&
+                webView.canGoForward()
+            ) {
+                webView.goForward()
+            }
         }
 
         addressContainer = LinearLayout(this).apply {
@@ -252,7 +311,8 @@ class MainActivity : Activity() {
             shortcuts,
             LinearLayout.LayoutParams(-1, dp(76))
         )
-                webView = WebView(this).apply {
+
+        webView = WebView(this).apply {
             layoutDirection = View.LAYOUT_DIRECTION_LTR
             visibility = View.GONE
 
@@ -325,94 +385,199 @@ class MainActivity : Activity() {
             params.topMargin = (contentFrame.height * 0.055f).toInt()
             homeScreen.layoutParams = params
         }
-
-        val bottomBar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(dp(2), dp(1), dp(2), dp(1))
-            background = roundedBackground(
-                surfaceColor,
-                borderColor,
-                20
-            )
-        }
-
-        bottomBar.addView(
-            makeIconButton("‹", "رجوع") {
-                if (
-                    webView.visibility == View.VISIBLE &&
-                    webView.canGoBack()
-                ) {
-                    webView.goBack()
-                } else {
-                    showHome()
-                }
-            },
-            bottomButtonParams()
-        )
-
-        bottomBar.addView(
-            makeIconButton("›", "للأمام") {
-                if (
-                    webView.visibility == View.VISIBLE &&
-                    webView.canGoForward()
-                ) {
-                    webView.goForward()
-                }
-            },
-            bottomButtonParams()
-        )
-
-        bottomBar.addView(
-            makeIconButton("⌂", "الرئيسية") {
-                showHome()
-            },
-            bottomButtonParams()
-        )
-
-        bottomBar.addView(
-            makeIconButton("↻", "إعادة التحميل") {
-                if (webView.visibility == View.VISIBLE) {
-                    webView.reload()
-                } else {
-                    homeSearch.requestFocus()
-                }
-            },
-            bottomButtonParams()
-        )
-
-        root.addView(
+                browserRoot.addView(
             header,
             LinearLayout.LayoutParams(-1, dp(34))
         )
 
-        root.addView(
+        browserRoot.addView(
             addressContainer,
             LinearLayout.LayoutParams(-1, dp(44)).apply {
                 setMargins(dp(8), dp(2), dp(8), dp(3))
             }
         )
 
-        root.addView(
+        browserRoot.addView(
             progressBar,
             LinearLayout.LayoutParams(-1, dp(2))
         )
 
-        root.addView(
+        browserRoot.addView(
             contentFrame,
             LinearLayout.LayoutParams(-1, 0, 1f)
         )
 
-        root.addView(
-            bottomBar,
-            LinearLayout.LayoutParams(-1, dp(38)).apply {
-                setMargins(dp(8), dp(2), dp(8), dp(3))
+        val appFrame = FrameLayout(this)
+
+        appFrame.addView(
+            browserRoot,
+            FrameLayout.LayoutParams(-1, -1)
+        )
+
+        drawerScrim = View(this).apply {
+            setBackgroundColor(Color.BLACK)
+            alpha = 0.45f
+            visibility = View.GONE
+            isClickable = true
+            isFocusable = true
+            contentDescription = "إغلاق القائمة الجانبية"
+            setOnClickListener {
+                hideBrowserDrawer()
+            }
+        }
+
+        appFrame.addView(
+            drawerScrim,
+            FrameLayout.LayoutParams(-1, -1)
+        )
+
+        drawerPanel = FrameLayout(this).apply {
+            visibility = View.GONE
+            elevation = dp(20).toFloat()
+            setBackgroundColor(surfaceColor)
+        }
+
+        browserDrawer = BrowserDrawer(
+            activity = this,
+            desktopModeEnabled = desktopMode,
+            adBlockEnabled = adBlockEnabled,
+            onHistoryClick = {
+                showHistoryDialog()
+            },
+            onDesktopModeChanged = { enabled ->
+                setDesktopMode(enabled)
+            },
+            onAdBlockChanged = { enabled ->
+                setAdBlockEnabled(enabled)
+            },
+            onCloseClick = {
+                hideBrowserDrawer()
             }
         )
 
-        setContentView(root)
+        drawerPanel.addView(
+            browserDrawer.view,
+            FrameLayout.LayoutParams(-1, -1)
+        )
+
+        appFrame.addView(
+            drawerPanel,
+            FrameLayout.LayoutParams(
+                (resources.displayMetrics.widthPixels * 0.82f)
+                    .toInt()
+                    .coerceAtMost(dp(360)),
+                -1,
+                Gravity.RIGHT
+            )
+        )
+
+        setContentView(appFrame)
 
         showHome()
+    }
+
+    private fun makeHeaderButton(
+        symbol: String,
+        description: String
+    ): TextView {
+        return TextView(this).apply {
+            text = symbol
+            textSize = 23f
+            gravity = Gravity.CENTER
+            contentDescription = description
+            setTextColor(primaryText)
+            isClickable = true
+            isFocusable = true
+            setPadding(dp(2), 0, dp(2), 0)
+            setBackgroundResource(
+                android.R.drawable.list_selector_background
+            )
+        }
+    }
+
+    private fun headerButtonParams(): LinearLayout.LayoutParams {
+        return LinearLayout.LayoutParams(
+            dp(32),
+            ViewGroup.LayoutParams.MATCH_PARENT
+        )
+    }
+
+    private fun toggleBrowserDrawer() {
+        if (!::drawerPanel.isInitialized) return
+
+        if (drawerPanel.visibility == View.VISIBLE) {
+            hideBrowserDrawer()
+        } else {
+            drawerScrim.visibility = View.VISIBLE
+            drawerPanel.visibility = View.VISIBLE
+            drawerPanel.bringToFront()
+        }
+    }
+
+    private fun hideBrowserDrawer() {
+        if (::drawerPanel.isInitialized) {
+            drawerPanel.visibility = View.GONE
+        }
+
+        if (::drawerScrim.isInitialized) {
+            drawerScrim.visibility = View.GONE
+        }
+    }
+
+    private fun setDesktopMode(enabled: Boolean) {
+        if (desktopMode == enabled) {
+            browserDrawer.setDesktopModeEnabled(enabled)
+            return
+        }
+
+        desktopMode = enabled
+
+        getSharedPreferences(
+            "veio_browser",
+            Context.MODE_PRIVATE
+        ).edit()
+            .putBoolean("desktop_mode", enabled)
+            .apply()
+
+        if (!::webView.isInitialized) return
+
+        val settings = webView.settings
+
+        if (enabled) {
+            settings.userAgentString =
+                "Mozilla/5.0 (X11; Linux x86_64) " +
+                "AppleWebKit/537.36 (KHTML, like Gecko) " +
+                "Chrome/131.0.0.0 Safari/537.36"
+
+            settings.useWideViewPort = true
+            settings.loadWithOverviewMode = true
+        } else {
+            mobileUserAgent?.let {
+                settings.userAgentString = it
+            }
+
+            settings.useWideViewPort = false
+            settings.loadWithOverviewMode = false
+        }
+
+        browserDrawer.setDesktopModeEnabled(enabled)
+
+        if (webView.url != null) {
+            webView.reload()
+        }
+    }
+
+    private fun setAdBlockEnabled(enabled: Boolean) {
+        adBlockEnabled = enabled
+
+        getSharedPreferences(
+            "veio_browser",
+            Context.MODE_PRIVATE
+        ).edit()
+            .putBoolean("ad_block_enabled", enabled)
+            .apply()
+
+        browserDrawer.setAdBlockEnabled(enabled)
     }
 
     private fun createSearchField(fieldHint: String): EditText {
@@ -538,67 +703,7 @@ class MainActivity : Activity() {
             setOnClickListener { action() }
         }
     }
-
-    private fun makeIconButton(
-        symbol: String,
-        description: String,
-        action: () -> Unit
-    ): TextView {
-        return TextView(this).apply {
-            text = symbol
-            textSize = 25f
-            gravity = Gravity.CENTER
-            contentDescription = description
-            setTextColor(primaryText)
-            setPadding(dp(5), 0, dp(5), 0)
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { action() }
-        }
-    }
-
-    private fun bottomButtonParams(): LinearLayout.LayoutParams {
-        return LinearLayout.LayoutParams(
-            0,
-            -1,
-            1f
-        )
-    }
-        private fun showBrowserMenu(anchor: View) {
-        val menu = PopupMenu(this, anchor)
-
-        menu.menu.add(Menu.NONE, 1, Menu.NONE, "السجل")
-        menu.menu.add(
-            Menu.NONE,
-            2,
-            Menu.NONE,
-            if (desktopMode) {
-                "إيقاف وضع سطح المكتب"
-            } else {
-                "سطح المكتب"
-            }
-        )
-
-        menu.setOnMenuItemClickListener { item ->
-            when (item.itemId) {
-                1 -> {
-                    showHistoryDialog()
-                    true
-                }
-
-                2 -> {
-                    toggleDesktopMode()
-                    true
-                }
-
-                else -> false
-            }
-        }
-
-        menu.show()
-    }
-
-    private fun saveHistory(url: String, title: String) {
+        private fun saveHistory(url: String, title: String) {
         val preferences = getSharedPreferences(
             "veio_browser",
             Context.MODE_PRIVATE
@@ -695,34 +800,6 @@ class MainActivity : Activity() {
             .show()
     }
 
-    private fun toggleDesktopMode() {
-        if (!::webView.isInitialized) return
-
-        desktopMode = !desktopMode
-        val settings = webView.settings
-
-        if (desktopMode) {
-            settings.userAgentString =
-                "Mozilla/5.0 (X11; Linux x86_64) " +
-                "AppleWebKit/537.36 (KHTML, like Gecko) " +
-                "Chrome/131.0.0.0 Safari/537.36"
-
-            settings.useWideViewPort = true
-            settings.loadWithOverviewMode = true
-        } else {
-            mobileUserAgent?.let {
-                settings.userAgentString = it
-            }
-
-            settings.useWideViewPort = false
-            settings.loadWithOverviewMode = false
-        }
-
-        webView.url?.let {
-            webView.reload()
-        }
-    }
-
     private fun roundedBackground(
         color: Int,
         strokeColor: Int,
@@ -756,6 +833,13 @@ class MainActivity : Activity() {
 
     @Deprecated("Deprecated in Android")
     override fun onBackPressed() {
+        if (::drawerPanel.isInitialized &&
+            drawerPanel.visibility == View.VISIBLE
+        ) {
+            hideBrowserDrawer()
+            return
+        }
+
         if (
             ::webView.isInitialized &&
             webView.visibility == View.VISIBLE
